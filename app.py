@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from io import BytesIO
+from datetime import datetime
 
 # =====================================================
 # CONFIGURACION
@@ -14,6 +15,10 @@ st.set_page_config(
 
 st.title("📊 Dashboard Delivery 📊")
 
+st.caption(
+    f"Última actualización: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+)
+	
 # =====================================================
 # CARGA DEL ARCHIVO
 # =====================================================
@@ -28,24 +33,46 @@ if archivo is None:
 # =====================================================
 # LEER EXCEL
 # =====================================================
-df_fijos = pd.read_excel(
-    archivo,
-    sheet_name="data Fijos"
-)
+xls = pd.ExcelFile(archivo)
 
-# Volver al inicio del archivo
-archivo.seek(0)
+hoja_fijos = None
+hoja_digital = None
 
-df_digital = pd.read_excel(
-    archivo,
-    sheet_name="data Digital"
-)
+for hoja in xls.sheet_names:
+    nombre = hoja.lower()
 
-# Crear columna tipo
-df_fijos["TIPO"] = "Fijos"
-df_digital["TIPO"] = "Digital"
+    if "data fijos" in nombre:
+        hoja_fijos = hoja
 
-# Unir
+    if "data digital" in nombre:
+        hoja_digital = hoja
+
+if hoja_fijos:
+    archivo.seek(0)
+    df_fijos = pd.read_excel(
+        archivo,
+        sheet_name=hoja_fijos
+    )
+    df_fijos["TIPO"] = "Fijos"
+else:
+    df_fijos = pd.DataFrame()
+
+if hoja_digital:
+    archivo.seek(0)
+    df_digital = pd.read_excel(
+        archivo,
+        sheet_name=hoja_digital
+    )
+    df_digital["TIPO"] = "Digital"
+else:
+    df_digital = pd.DataFrame()
+
+if df_fijos.empty and df_digital.empty:
+    st.error(
+        f"No se encontraron hojas de Fijos o Digital.\nHojas encontradas: {xls.sheet_names}"
+    )
+    st.stop()
+
 df = pd.concat(
     [df_fijos, df_digital],
     ignore_index=True
@@ -166,24 +193,6 @@ if "EJECUTIVO" in df.columns:
             .isin(ejecutivo)
         ]
 
-# Cliente
-if "CLIENTE" in df.columns:
-
-    cliente = st.sidebar.multiselect(
-        "Cliente",
-        sorted(
-            df["CLIENTE"]
-            .dropna()
-            .unique()
-        )
-    )
-
-    if cliente:
-        df = df[
-            df["CLIENTE"]
-            .isin(cliente)
-        ]
-
 # Año
 if "AÑO" in df.columns:
 
@@ -223,6 +232,7 @@ if "MES" in df.columns:
 # =====================================================
 # ESTADOS
 # =====================================================
+#st.write(df.columns.tolist())
 df_estado = df[
     df["STATUS_SEGUIMIENTO"].isin(
         [
@@ -250,11 +260,116 @@ pospuesto = df_estado[
 ]
 
 # =====================================================
+# DASHBOARD POR GERENTE
+# =====================================================
+if "GERENTE_CARTERA" in df_estado.columns:
+
+    st.subheader(
+        "👥 Dashboard por Gerente"
+    )
+
+    gerente_df = (
+        df_estado
+        .groupby(
+            [
+                "GERENTE_CARTERA",
+                "STATUS_SEGUIMIENTO"
+            ]
+        )
+        .agg(
+            OT=("STATUS_SEGUIMIENTO", "count"),
+            MONTO=("MONTO_VENTA_FINAL", "sum")
+        )
+        .reset_index()
+    )
+
+    fig_gerente = px.bar(
+        gerente_df,
+        x="GERENTE_CARTERA",
+        y="OT",
+        color="STATUS_SEGUIMIENTO",
+        barmode="group",
+        text="OT",
+        title="OT por Gerente y Estado",
+        color_discrete_map={
+            "RETRASADO": "red",
+            "VIGENTE": "green",
+            "POSPUESTO": "blue",
+            "POSPUESTA": "blue"
+        }
+    )
+
+    fig_gerente.update_layout(
+        xaxis_title="Gerente de Cartera",
+        yaxis_title="Cantidad de OT",
+        legend_title="Estado"
+    )
+
+    st.plotly_chart(
+        fig_gerente,
+        use_container_width=True
+    )
+# =====================================================
+# DASHBOARD POR COORDINACION
+# =====================================================
+for col_coord in [
+    "COORDINACION",
+    "COORDINACIÓN"
+]:
+
+    if col_coord in df_estado.columns:
+
+        coord_df = (
+            df_estado
+            .groupby(
+                [col_coord, "STATUS_SEGUIMIENTO"]
+            )
+            .agg(
+                OT=("STATUS_SEGUIMIENTO", "count"),
+                MONTO=("MONTO_VENTA_FINAL", "sum")
+            )
+            .reset_index()
+        )
+
+        # Excluir coordinaciones
+        coord_df = coord_df[
+            ~coord_df[col_coord].isin(
+                ["SAC (LQEV)", "WHOLESALE"]
+            )
+        ]
+
+        fig_coord = px.bar(
+            coord_df,
+            x=col_coord,
+            y="OT",
+            color="STATUS_SEGUIMIENTO",
+            barmode="group",
+            text="OT"
+        )
+
+        st.plotly_chart(
+            fig_coord,
+            use_container_width=True
+        )
+
+        break
+
+# =====================================================
 # KPI
 # =====================================================
+def formato_monto(valor):
+    if valor >= 1_000_000:
+        return f"${valor/1_000_000:.2f}M"
+    elif valor >= 1_000:
+        return f"${valor/1_000:.1f}K"
+    else:
+        return f"${valor:,.2f}"
+
 st.subheader("Resumen Ejecutivo")
 
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, = st.columns(3)
+c4, c5, c6, = st.columns(3)
+
 
 with c1:
     st.metric(
@@ -292,6 +407,26 @@ with c4:
         f"$ {retrasado['MONTO_VENTA_FINAL'].fillna(0).sum():,.2f}"
     )
 
+with c5:
+    st.metric(
+        "📋 Total OT",
+        f"{len(df_estado):,}"
+    )
+
+with c6:
+    porcentaje = 0
+
+    if len(df_estado) > 0:
+        porcentaje = (
+            len(retrasado)
+            / len(df_estado)
+        ) * 100
+
+    st.metric(
+        "% Retrasadas",
+        f"{porcentaje:.1f}%"
+    )
+
 # =====================================================
 # RESUMEN
 # =====================================================
@@ -322,6 +457,22 @@ fig = px.bar(
 
 st.plotly_chart(
     fig,
+    use_container_width=True
+)
+
+st.subheader(
+    "Distribución de Estados"
+)
+
+fig_pie = px.pie(
+    resumen,
+    values="OT",
+    names="STATUS_SEGUIMIENTO",
+    hole=0.4
+)
+
+st.plotly_chart(
+    fig_pie,
     use_container_width=True
 )
 
@@ -430,6 +581,46 @@ if "CLIENTE" in retrasado.columns:
 
     st.dataframe(
         top,
+        use_container_width=True
+    )
+
+# =====================================================
+# TENDENCIA MENSUAL
+# =====================================================
+if columna_fecha:
+
+    df_estado["MES_NUM"] = (
+        df_estado[columna_fecha]
+        .dt.month
+    )
+
+    tendencia = (
+        df_estado
+        .groupby(
+            [
+                "AÑO",
+                "MES_NUM",
+                "STATUS_SEGUIMIENTO"
+            ]
+        )
+        .size()
+        .reset_index(name="OT")
+    )
+
+    st.subheader(
+        "📈 Tendencia Mensual"
+    )
+
+    fig_tendencia = px.line(
+        tendencia,
+        x="MES_NUM",
+        y="OT",
+        color="STATUS_SEGUIMIENTO",
+        markers=True
+    )
+
+    st.plotly_chart(
+        fig_tendencia,
         use_container_width=True
     )
 
