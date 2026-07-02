@@ -819,46 +819,6 @@ if "CLIENTE" in retrasado.columns:
     )
 
 # =====================================================
-# TENDENCIA MENSUAL
-# =====================================================
-if columna_fecha:
-
-    df_estado["MES_NUM"] = (
-        df_estado[columna_fecha]
-        .dt.month
-    )
-
-    tendencia = (
-        df_estado
-        .groupby(
-            [
-                "AÑO",
-                "MES_NUM",
-                "STATUS_SEGUIMIENTO"
-            ]
-        )
-        .size()
-        .reset_index(name="OT")
-    )
-
-    st.subheader(
-        "📈 Tendencia Mensual"
-    )
-
-    fig_tendencia = px.line(
-        tendencia,
-        x="MES_NUM",
-        y="OT",
-        color="STATUS_SEGUIMIENTO",
-        markers=True
-    )
-
-    st.plotly_chart(
-        fig_tendencia,
-        use_container_width=True
-    )
-
-# =====================================================
 # EXPORTAR
 # =====================================================
 buffer = BytesIO()
