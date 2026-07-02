@@ -27,6 +27,11 @@ archivo = st.file_uploader(
     type=["xlsx"]
 )
 
+archivo_anterior = st.sidebar.file_uploader(
+    "📁 Matriz Anterior",
+    type=["xlsx"]
+)
+
 if archivo is None:
     st.stop()
 
@@ -77,6 +82,58 @@ df = pd.concat(
     [df_fijos, df_digital],
     ignore_index=True
 )
+
+def cargar_matriz(archivo_excel):
+
+    xls_ant = pd.ExcelFile(archivo_excel)
+
+    hoja_fijos = None
+    hoja_digital = None
+
+    for hoja in xls_ant.sheet_names:
+        nombre = hoja.lower()
+
+        if "data fijos" in nombre:
+            hoja_fijos = hoja
+
+        if "data digital" in nombre:
+            hoja_digital = hoja
+
+    df_fijos_ant = pd.DataFrame()
+    df_digital_ant = pd.DataFrame()
+
+    if hoja_fijos:
+        archivo_excel.seek(0)
+        df_fijos_ant = pd.read_excel(
+            archivo_excel,
+            sheet_name=hoja_fijos
+        )
+        df_fijos_ant["TIPO"] = "Fijos"
+
+    if hoja_digital:
+        archivo_excel.seek(0)
+        df_digital_ant = pd.read_excel(
+            archivo_excel,
+            sheet_name=hoja_digital
+        )
+        df_digital_ant["TIPO"] = "Digital"
+
+    df_ant = pd.concat(
+        [df_fijos_ant, df_digital_ant],
+        ignore_index=True
+    )
+
+    df_ant.columns = df_ant.columns.str.strip()
+
+    if "STATUS_SEGUIMIENTO" in df_ant.columns:
+        df_ant["STATUS_SEGUIMIENTO"] = (
+            df_ant["STATUS_SEGUIMIENTO"]
+            .astype(str)
+            .str.upper()
+            .str.strip()
+        )
+
+    return df_ant
 
 # =====================================================
 # LIMPIEZA
@@ -500,10 +557,107 @@ resumen = (
 )
 
 st.dataframe(
-    resumen,
+    resumen.style.format(
+        {
+            "MONTO": "${:,.2f}"
+        }
+    ),
     use_container_width=True
 )
 
+# =====================================================
+# COMPARATIVO BACKLOG
+# =====================================================
+
+if archivo_anterior:
+
+    df_anterior = cargar_matriz(
+        archivo_anterior
+    )
+
+    estados = [
+        "RETRASADO",
+        "VIGENTE",
+        "POSPUESTO",
+        "POSPUESTA"
+    ]
+
+    df_anterior = df_anterior[
+        df_anterior["STATUS_SEGUIMIENTO"]
+        .isin(estados)
+    ]
+
+    resumen_ant = (
+        df_anterior
+        .groupby("STATUS_SEGUIMIENTO")
+        .agg(
+            OT_ANTERIOR=(
+                "STATUS_SEGUIMIENTO",
+                "count"
+            ),
+            MONTO_ANTERIOR=(
+                "MONTO_VENTA_FINAL",
+                "sum"
+            )
+        )
+        .reset_index()
+    )
+
+    resumen_act = (
+        df_estado
+        .groupby("STATUS_SEGUIMIENTO")
+        .agg(
+            OT_ACTUAL=(
+                "STATUS_SEGUIMIENTO",
+                "count"
+            ),
+            MONTO_ACTUAL=(
+                "MONTO_VENTA_FINAL",
+                "sum"
+            )
+        )
+        .reset_index()
+    )
+
+    comparativo = (
+        resumen_ant
+        .merge(
+            resumen_act,
+            on="STATUS_SEGUIMIENTO",
+            how="outer"
+        )
+        .fillna(0)
+    )
+
+    comparativo["VARIACION_OT"] = (
+        comparativo["OT_ACTUAL"]
+        -
+        comparativo["OT_ANTERIOR"]
+    )
+
+    comparativo["VARIACION_MONTO"] = (
+        comparativo["MONTO_ACTUAL"]
+        -
+        comparativo["MONTO_ANTERIOR"]
+    )
+
+    st.subheader(
+        "📈 Variación del Backlog"
+    )
+
+    st.dataframe(
+    comparativo.style.format(
+        {
+            "OT_ANTERIOR": "{:,.0f}",
+            "OT_ACTUAL": "{:,.0f}",
+            "VARIACION_OT": "{:,.0f}",
+            "MONTO_ANTERIOR": "${:,.2f}",
+            "MONTO_ACTUAL": "${:,.2f}",
+            "VARIACION_MONTO": "${:,.2f}"
+        }
+    ),
+    use_container_width=True
+)
 fig = px.bar(
     resumen,
     x="STATUS_SEGUIMIENTO",
