@@ -92,6 +92,63 @@ if "STATUS_SEGUIMIENTO" in df.columns:
     )
 
 # =====================================================
+# CONSULTING
+# =====================================================
+consulting = df[
+    (df["TIPO"] == "Digital")
+    &
+    (
+        df["NOMBRE_VENTAS_FIJOS"]
+        .astype(str)
+        .str.upper()
+        .str.strip()
+        == "SERVICIOS PROFESIONALES CIBERSEGURIDAD"
+    )
+    &
+    (
+        df["STATUS_SEGUIMIENTO"]
+        .isin(
+            [
+                "RETRASADO",
+                "VIGENTE",
+                "POSPUESTO",
+                "POSPUESTA"
+            ]
+        )
+    )
+].copy()
+
+# <<< AGREGA ESTO TEMPORALMENTE >>>
+#st.write(
+#    consulting["STATUS_SEGUIMIENTO"]
+#    .value_counts(dropna=False)
+#)
+
+#st.dataframe(
+#    consulting[
+#        [
+#            "STATUS_SEGUIMIENTO",
+#            "NOMBRE_VENTAS_FIJOS",
+#            "MONTO_VENTA_FINAL"
+#        ]
+#    ]
+#)
+
+# CONTINÚA CON ESTO
+ot_consulting = len(consulting)
+
+monto_consulting = (
+    pd.to_numeric(
+        consulting["MONTO_VENTA_FINAL"],
+        errors="coerce"
+    )
+    .fillna(0)
+    .sum()
+)
+
+df = df.drop(consulting.index)
+
+# =====================================================
 # FECHA
 # =====================================================
 columna_fecha = None
@@ -367,8 +424,8 @@ def formato_monto(valor):
 
 st.subheader("Resumen Ejecutivo")
 
-c1, c2, c3, = st.columns(3)
-c4, c5, c6, = st.columns(3)
+c1, c2, c3, c4 = st.columns(4)
+c5, c6, c7, = st.columns(3)
 
 
 with c1:
@@ -403,17 +460,27 @@ with c3:
 
 with c4:
     st.metric(
+        "🟣 OT Consulting",
+        f"{ot_consulting:,}"
+    )
+    st.metric(
+        "Monto Consulting",
+        f"$ {monto_consulting:,.2f}"
+    )
+
+with c5:
+    st.metric(
         "💰 Monto en Riesgo",
         f"$ {retrasado['MONTO_VENTA_FINAL'].fillna(0).sum():,.2f}"
     )
 
-with c5:
+with c6:
     st.metric(
         "📋 Total OT",
         f"{len(df_estado):,}"
     )
 
-with c6:
+with c7:
     porcentaje = 0
 
     if len(df_estado) > 0:
@@ -452,7 +519,13 @@ fig = px.bar(
     x="STATUS_SEGUIMIENTO",
     y="OT",
     color="STATUS_SEGUIMIENTO",
-    text="OT"
+    text="OT",
+    color_discrete_map={
+        "VIGENTE": "green",
+        "RETRASADO": "red",
+        "POSPUESTO": "blue",
+        "POSPUESTA": "blue"
+    }
 )
 
 st.plotly_chart(
@@ -463,14 +536,19 @@ st.plotly_chart(
 st.subheader(
     "Distribución de Estados"
 )
-
 fig_pie = px.pie(
     resumen,
     values="OT",
     names="STATUS_SEGUIMIENTO",
-    hole=0.4
+    hole=0.4,
+    color="STATUS_SEGUIMIENTO",
+    color_discrete_map={
+        "VIGENTE": "green",
+        "RETRASADO": "red",
+        "POSPUESTO": "blue",
+        "POSPUESTA": "blue"
+    }
 )
-
 st.plotly_chart(
     fig_pie,
     use_container_width=True
@@ -501,7 +579,13 @@ if "AÑO" in df_estado.columns:
         color="STATUS_SEGUIMIENTO",
         barmode="group",
         text="OT",
-        title="OT Retrasadas, Vigentes y Pospuestas por Año"
+        title="OT Retrasadas, Vigentes y Pospuestas por Año",
+        color_discrete_map={
+            "POSPUESTO": "#0070C0",
+            "POSPUESTA": "#0070C0",
+            "VIGENTE": "#00B050",
+            "RETRASADO": "#C00000"
+        }
     )
 
     fig_anio.update_layout(
@@ -541,7 +625,13 @@ if "AÑO" in df_estado.columns:
         y="MONTO",
         color="STATUS_SEGUIMIENTO",
         barmode="group",
-        title="Monto por Estado y Año"
+        title="Monto por Estado y Año",
+        color_discrete_map={
+            "VIGENTE": "#00B050",
+            "RETRASADO": "#C00000",
+            "POSPUESTO": "#0070C0",
+            "POSPUESTA": "#0070C0"
+        }
     )
 
     fig_monto.update_layout(
