@@ -92,63 +92,6 @@ if "STATUS_SEGUIMIENTO" in df.columns:
     )
 
 # =====================================================
-# CONSULTING
-# =====================================================
-consulting = df[
-    (df["TIPO"] == "Digital")
-    &
-    (
-        df["NOMBRE_VENTAS_FIJOS"]
-        .astype(str)
-        .str.upper()
-        .str.strip()
-        == "SERVICIOS PROFESIONALES CIBERSEGURIDAD"
-    )
-    &
-    (
-        df["STATUS_SEGUIMIENTO"]
-        .isin(
-            [
-                "RETRASADO",
-                "VIGENTE",
-                "POSPUESTO",
-                "POSPUESTA"
-            ]
-        )
-    )
-].copy()
-
-# <<< AGREGA ESTO TEMPORALMENTE >>>
-#st.write(
-#    consulting["STATUS_SEGUIMIENTO"]
-#    .value_counts(dropna=False)
-#)
-
-#st.dataframe(
-#    consulting[
-#        [
-#            "STATUS_SEGUIMIENTO",
-#            "NOMBRE_VENTAS_FIJOS",
-#            "MONTO_VENTA_FINAL"
-#        ]
-#    ]
-#)
-
-# CONTINÚA CON ESTO
-ot_consulting = len(consulting)
-
-monto_consulting = (
-    pd.to_numeric(
-        consulting["MONTO_VENTA_FINAL"],
-        errors="coerce"
-    )
-    .fillna(0)
-    .sum()
-)
-
-df = df.drop(consulting.index)
-
-# =====================================================
 # FECHA
 # =====================================================
 columna_fecha = None
@@ -285,6 +228,53 @@ if "MES" in df.columns:
             df["MES"]
             .isin(mes)
         ]
+
+# =====================================================
+# CONSULTING
+# =====================================================
+consulting = pd.DataFrame()
+ot_consulting = 0
+monto_consulting = 0
+
+if "NOMBRE_VENTAS_FIJOS" in df.columns:
+
+    consulting = df[
+        (df["TIPO"] == "Digital")
+        &
+        (
+            df["NOMBRE_VENTAS_FIJOS"]
+            .astype(str)
+            .str.upper()
+            .str.strip()
+            == "SERVICIOS PROFESIONALES CIBERSEGURIDAD"
+        )
+        &
+        (
+            df["STATUS_SEGUIMIENTO"]
+            .isin(
+                [
+                    "RETRASADO",
+                    "VIGENTE",
+                    "POSPUESTO",
+                    "POSPUESTA"
+                ]
+            )
+        )
+    ].copy()
+
+    ot_consulting = len(consulting)
+
+    monto_consulting = (
+        pd.to_numeric(
+            consulting["MONTO_VENTA_FINAL"],
+            errors="coerce"
+        )
+        .fillna(0)
+        .sum()
+    )
+
+    # Eliminar Consulting del dashboard
+    df = df.drop(consulting.index)
 
 # =====================================================
 # ESTADOS
