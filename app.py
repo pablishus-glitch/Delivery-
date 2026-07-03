@@ -208,6 +208,27 @@ if "GERENTE_CARTERA" in df.columns:
             .isin(gerente)
         ]
 
+# OTC
+if "OTC" in df.columns:
+
+    otc = st.sidebar.multiselect(
+        "One Time Charge (OTC)",
+        sorted(
+            df["OTC"]
+            .dropna()
+            .astype(str)
+            .unique()
+        )
+    )
+
+    if otc:
+        df = df[
+            df["OTC"]
+            .astype(str)
+            .isin(otc)
+        ]
+
+
 # Coordinacion
 for c in [
     "COORDINACION",
@@ -332,6 +353,56 @@ if "NOMBRE_VENTAS_FIJOS" in df.columns:
 
     # Eliminar Consulting del dashboard
     df = df.drop(consulting.index)
+
+# =====================================================
+# PROYECTOS
+# =====================================================
+proyectos = pd.DataFrame()
+ot_proyectos = 0
+monto_proyectos = 0
+
+if "STATUS_SEGUIMIENTO" in df.columns:
+
+    proyectos = df[
+        (df["TIPO"] == "Digital")
+        &
+        (
+            df["STATUS_SEGUIMIENTO"]
+            .astype(str)
+            .str.upper()
+            .str.strip()
+            == "PROYECTO"
+        )
+    ].copy()
+
+    ot_proyectos = len(proyectos)
+
+    monto_proyectos = (
+        pd.to_numeric(
+            proyectos["MONTO_VENTA_FINAL"],
+            errors="coerce"
+        )
+        .fillna(0)
+        .sum()
+    )
+# =====================================================
+# TOTAL OT
+# =====================================================
+total_ot = len(
+    df[
+        df["STATUS_SEGUIMIENTO"]
+        .isin(
+            [
+                "RETRASADO",
+                "VIGENTE",
+                "POSPUESTO",
+                "POSPUESTA",
+                "PROYECTO"
+            ]
+        )
+    ]
+)
+
 
 # =====================================================
 # ESTADOS
@@ -472,7 +543,7 @@ def formato_monto(valor):
 st.subheader("Resumen Ejecutivo")
 
 c1, c2, c3, c4 = st.columns(4)
-c5, c6, c7, = st.columns(3)
+c5, c6, c7, c8 = st.columns(4)
 
 
 with c1:
@@ -517,17 +588,27 @@ with c4:
 
 with c5:
     st.metric(
-        "💰 Monto en Riesgo",
-        f"$ {retrasado['MONTO_VENTA_FINAL'].fillna(0).sum():,.2f}"
+        "📁 OT Proyectos",
+        f"{ot_proyectos:,}"
+    )
+    st.metric(
+        "Monto Proyectos",
+        f"$ {monto_proyectos:,.2f}"
     )
 
 with c6:
     st.metric(
-        "📋 Total OT",
-        f"{len(df_estado):,}"
+        "💰 Monto en Riesgo",
+        f"$ {retrasado['MONTO_VENTA_FINAL'].fillna(0).sum():,.2f}"
     )
 
 with c7:
+    st.metric(
+        "📋 Total OT",
+        f"{total_ot + ot_consulting:,}"
+    )
+
+with c8:
     porcentaje = 0
 
     if len(df_estado) > 0:
@@ -568,7 +649,6 @@ st.dataframe(
 # =====================================================
 # COMPARATIVO BACKLOG
 # =====================================================
-
 if archivo_anterior:
 
     df_anterior = cargar_matriz(
@@ -579,11 +659,19 @@ if archivo_anterior:
         "RETRASADO",
         "VIGENTE",
         "POSPUESTO",
-        "POSPUESTA"
+        "POSPUESTA",
+        "PROYECTO"
     ]
 
+    # Matriz anterior
     df_anterior = df_anterior[
         df_anterior["STATUS_SEGUIMIENTO"]
+        .isin(estados)
+    ]
+
+    # Matriz actual
+    df_comparativo = df[
+        df["STATUS_SEGUIMIENTO"]
         .isin(estados)
     ]
 
@@ -604,7 +692,7 @@ if archivo_anterior:
     )
 
     resumen_act = (
-        df_estado
+        df_comparativo
         .groupby("STATUS_SEGUIMIENTO")
         .agg(
             OT_ACTUAL=(
@@ -641,63 +729,31 @@ if archivo_anterior:
         comparativo["MONTO_ANTERIOR"]
     )
 
+    comparativo["VARIACION_%"] = (
+        comparativo["VARIACION_OT"]
+        /
+        comparativo["OT_ANTERIOR"]
+        .replace(0, pd.NA)
+    ) * 100
+
     st.subheader(
         "📈 Variación del Backlog"
     )
 
     st.dataframe(
-    comparativo.style.format(
-        {
-            "OT_ANTERIOR": "{:,.0f}",
-            "OT_ACTUAL": "{:,.0f}",
-            "VARIACION_OT": "{:,.0f}",
-            "MONTO_ANTERIOR": "${:,.2f}",
-            "MONTO_ACTUAL": "${:,.2f}",
-            "VARIACION_MONTO": "${:,.2f}"
-        }
-    ),
-    use_container_width=True
-)
-fig = px.bar(
-    resumen,
-    x="STATUS_SEGUIMIENTO",
-    y="OT",
-    color="STATUS_SEGUIMIENTO",
-    text="OT",
-    color_discrete_map={
-        "VIGENTE": "green",
-        "RETRASADO": "red",
-        "POSPUESTO": "blue",
-        "POSPUESTA": "blue"
-    }
-)
-
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
-
-st.subheader(
-    "Distribución de Estados"
-)
-fig_pie = px.pie(
-    resumen,
-    values="OT",
-    names="STATUS_SEGUIMIENTO",
-    hole=0.4,
-    color="STATUS_SEGUIMIENTO",
-    color_discrete_map={
-        "VIGENTE": "green",
-        "RETRASADO": "red",
-        "POSPUESTO": "blue",
-        "POSPUESTA": "blue"
-    }
-)
-st.plotly_chart(
-    fig_pie,
-    use_container_width=True
-)
-
+        comparativo.style.format(
+            {
+                "OT_ANTERIOR": "{:,.0f}",
+                "OT_ACTUAL": "{:,.0f}",
+                "VARIACION_OT": "{:,.0f}",
+                "MONTO_ANTERIOR": "${:,.2f}",
+                "MONTO_ACTUAL": "${:,.2f}",
+                "VARIACION_MONTO": "${:,.2f}",
+                "VARIACION_%": "{:.1f}%"
+            }
+        ),
+        use_container_width=True
+    )
 # =====================================================
 # GRAFICA DE OT POR AÑO
 # =====================================================
@@ -817,6 +873,8 @@ if "CLIENTE" in retrasado.columns:
         top,
         use_container_width=True
     )
+
+
 
 # =====================================================
 # EXPORTAR
