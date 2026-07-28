@@ -1,910 +1,238 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from io import BytesIO
-from datetime import datetime
 
-# =====================================================
-# CONFIGURACION
-# =====================================================
 st.set_page_config(
-    page_title="Dashboard Comercial Tigo Business",
+    page_title="Commercial Intelligence Center",
     page_icon="📊",
     layout="wide"
 )
 
-st.title("📊 Dashboard Delivery 📊")
+@st.cache_data
+def cargar_datos(archivo):
+    return pd.read_excel(archivo)
 
-st.caption(
-    f"Última actualización: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-)
-	
+def aplicar_filtros(df):
+
+    st.sidebar.header("🎯 Filtros")
+
+    cliente = st.sidebar.multiselect(
+        "Cliente",
+        sorted(df["CLIENTE"].dropna().unique())
+    )
+
+    producto = st.sidebar.multiselect(
+        "Producto",
+        sorted(df["PRODUCTO"].dropna().unique())
+    )
+
+    estado = st.sidebar.multiselect(
+        "Estado",
+        sorted(df["ESTADO"].dropna().unique())
+    )
+
+    ejecutivo = st.sidebar.multiselect(
+        "Ejecutivo Comercial",
+        sorted(df["EJECUTIVO_COMERCIAL"].dropna().unique())
+    )
+
+    if cliente:
+        df = df[df["CLIENTE"].isin(cliente)]
+
+    if producto:
+        df = df[df["PRODUCTO"].isin(producto)]
+
+    if estado:
+        df = df[df["ESTADO"].isin(estado)]
+
+    if ejecutivo:
+        df = df[df["EJECUTIVO_COMERCIAL"].isin(ejecutivo)]
+
+    return df
+
+def obtener_kpis(df):
+
+    clientes = df["CLIENTE"].nunique()
+    servicios = len(df)
+    mrc = df["MRC_USD"].sum()
+    mbf = df["MBF_USD"].sum()
+
+    return clientes, servicios, mrc, mbf
+
+def resumen_clientes(df):
+
+    tabla = (
+        df.groupby("CLIENTE")
+        .agg(
+            SERVICIOS=("CLIENTE","count"),
+            MRC_USD=("MRC_USD","sum"),
+            MBF_USD=("MBF_USD","sum")
+        )
+        .reset_index()
+    )
+
+    tabla = tabla.sort_values(
+        by="MRC_USD",
+        ascending=False
+    )
+
+    return tabla
+
 # =====================================================
-# CARGA DEL ARCHIVO
+# TOP 10 CLIENTES
 # =====================================================
+
+def top_clientes(df):
+
+    top = (
+        df.groupby("CLIENTE")["MRC_USD"]
+        .sum()
+        .reset_index()
+        .sort_values("MRC_USD", ascending=False)
+        .head(10)
+    )
+
+    return top
+
+# =====================================================
+# TOP PRODUCTOS
+# =====================================================
+
+def top_productos(df):
+
+    productos = (
+        df.groupby("PRODUCTO")
+        .size()
+        .reset_index(name="SERVICIOS")
+        .sort_values("SERVICIOS", ascending=False)
+    )
+
+    return productos
+
+
+
+
+st.title("📊 Commercial Intelligence Center")
+st.caption("Tigo Business")
+
 archivo = st.file_uploader(
-    "Seleccione el archivo Excel",
-    type=["xlsx"]
-)
-
-archivo_anterior = st.sidebar.file_uploader(
-    "📁 Matriz Anterior",
+    "Seleccione el Cubo Comercial",
     type=["xlsx"]
 )
 
 if archivo is None:
     st.stop()
 
+df = cargar_datos(archivo)
+df = aplicar_filtros(df)
+
+st.success(f"✅ Cubo cargado correctamente ({len(df):,} registros)")
+
+clientes, servicios, mrc, mbf = obtener_kpis(df)
+
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    st.metric("👥 Clientes", f"{clientes:,}")
+
+with col2:
+    st.metric("📦 Servicios", f"{servicios:,}")
+
+with col3:
+    st.metric("💰 MRC USD", f"${mrc:,.2f}")
+
+with col4:
+    st.metric("💵 MBF USD", f"${mbf:,.2f}")
+
 # =====================================================
-# LEER EXCEL
+# TOP 10 CLIENTES
 # =====================================================
-xls = pd.ExcelFile(archivo)
 
-hoja_fijos = None
-hoja_digital = None
+st.subheader("🏆 Top 10 Clientes por MRC")
 
-for hoja in xls.sheet_names:
-    nombre = hoja.lower()
+top = top_clientes(df)
 
-    if "data fijos" in nombre:
-        hoja_fijos = hoja
-
-    if "data digital" in nombre:
-        hoja_digital = hoja
-
-if hoja_fijos:
-    archivo.seek(0)
-    df_fijos = pd.read_excel(
-        archivo,
-        sheet_name=hoja_fijos
-    )
-    df_fijos["TIPO"] = "Fijos"
-else:
-    df_fijos = pd.DataFrame()
-
-if hoja_digital:
-    archivo.seek(0)
-    df_digital = pd.read_excel(
-        archivo,
-        sheet_name=hoja_digital
-    )
-    df_digital["TIPO"] = "Digital"
-else:
-    df_digital = pd.DataFrame()
-
-if df_fijos.empty and df_digital.empty:
-    st.error(
-        f"No se encontraron hojas de Fijos o Digital.\nHojas encontradas: {xls.sheet_names}"
-    )
-    st.stop()
-
-df = pd.concat(
-    [df_fijos, df_digital],
-    ignore_index=True
+fig = px.bar(
+    top,
+    x="MRC_USD",
+    y="CLIENTE",
+    orientation="h",
+    text_auto=".2s"
 )
 
-def cargar_matriz(archivo_excel):
-
-    xls_ant = pd.ExcelFile(archivo_excel)
-
-    hoja_fijos = None
-    hoja_digital = None
-
-    for hoja in xls_ant.sheet_names:
-        nombre = hoja.lower()
-
-        if "data fijos" in nombre:
-            hoja_fijos = hoja
-
-        if "data digital" in nombre:
-            hoja_digital = hoja
-
-    df_fijos_ant = pd.DataFrame()
-    df_digital_ant = pd.DataFrame()
-
-    if hoja_fijos:
-        archivo_excel.seek(0)
-        df_fijos_ant = pd.read_excel(
-            archivo_excel,
-            sheet_name=hoja_fijos
-        )
-        df_fijos_ant["TIPO"] = "Fijos"
-
-    if hoja_digital:
-        archivo_excel.seek(0)
-        df_digital_ant = pd.read_excel(
-            archivo_excel,
-            sheet_name=hoja_digital
-        )
-        df_digital_ant["TIPO"] = "Digital"
-
-    df_ant = pd.concat(
-        [df_fijos_ant, df_digital_ant],
-        ignore_index=True
-    )
-
-    df_ant.columns = df_ant.columns.str.strip()
-
-    if "STATUS_SEGUIMIENTO" in df_ant.columns:
-        df_ant["STATUS_SEGUIMIENTO"] = (
-            df_ant["STATUS_SEGUIMIENTO"]
-            .astype(str)
-            .str.upper()
-            .str.strip()
-        )
-
-    return df_ant
-
-# =====================================================
-# LIMPIEZA
-# =====================================================
-df.columns = df.columns.str.strip()
-
-if "STATUS_SEGUIMIENTO" in df.columns:
-    df["STATUS_SEGUIMIENTO"] = (
-        df["STATUS_SEGUIMIENTO"]
-        .astype(str)
-        .str.upper()
-        .str.strip()
-    )
-
-# =====================================================
-# FECHA
-# =====================================================
-columna_fecha = None
-
-for c in [
-    "FECHA",
-    "FECHA_VENTA",
-    "FECHA_INGRESO",
-    "FECHA_SOLICITUD"
-]:
-    if c in df.columns:
-        columna_fecha = c
-        break
-
-if columna_fecha:
-
-    df[columna_fecha] = pd.to_datetime(
-        df[columna_fecha],
-        errors="coerce"
-    )
-
-    df["AÑO"] = df[columna_fecha].dt.year
-    df["MES"] = (
-        df[columna_fecha]
-        .dt.month_name()
-    )
-
-# =====================================================
-# FILTROS
-# =====================================================
-st.sidebar.header("Filtros")
-
-# Tipo
-tipo = st.sidebar.multiselect(
-    "Tipo de Servicio",
-    sorted(df["TIPO"].dropna().unique())
+fig.update_layout(
+    yaxis={"categoryorder": "total ascending"}
 )
 
-if tipo:
-    df = df[df["TIPO"].isin(tipo)]
-
-# Gerente
-if "GERENTE_CARTERA" in df.columns:
-
-    gerente = st.sidebar.multiselect(
-        "Gerente de Cartera",
-        sorted(
-            df["GERENTE_CARTERA"]
-            .dropna()
-            .unique()
-        )
-    )
-
-    if gerente:
-        df = df[
-            df["GERENTE_CARTERA"]
-            .isin(gerente)
-        ]
-
-# OTC
-if "OTC" in df.columns:
-
-    otc = st.sidebar.multiselect(
-        "One Time Charge (OTC)",
-        sorted(
-            df["OTC"]
-            .dropna()
-            .astype(str)
-            .unique()
-        )
-    )
-
-    if otc:
-        df = df[
-            df["OTC"]
-            .astype(str)
-            .isin(otc)
-        ]
-
-
-# Coordinacion
-for c in [
-    "COORDINACION",
-    "COORDINACIÓN"
-]:
-    if c in df.columns:
-
-        coordinacion = st.sidebar.multiselect(
-            "Coordinación",
-            sorted(
-                df[c]
-                .dropna()
-                .unique()
-            )
-        )
-
-        if coordinacion:
-            df = df[
-                df[c]
-                .isin(coordinacion)
-            ]
-
-        break
-
-# Ejecutivo
-if "EJECUTIVO" in df.columns:
-
-    ejecutivo = st.sidebar.multiselect(
-        "Ejecutivo",
-        sorted(
-            df["EJECUTIVO"]
-            .dropna()
-            .unique()
-        )
-    )
-
-    if ejecutivo:
-        df = df[
-            df["EJECUTIVO"]
-            .isin(ejecutivo)
-        ]
-
-# Año
-if "AÑO" in df.columns:
-
-    anio = st.sidebar.multiselect(
-        "Año",
-        sorted(
-            df["AÑO"]
-            .dropna()
-            .unique()
-        )
-    )
-
-    if anio:
-        df = df[
-            df["AÑO"]
-            .isin(anio)
-        ]
-
-# Mes
-if "MES" in df.columns:
-
-    mes = st.sidebar.multiselect(
-        "Mes",
-        sorted(
-            df["MES"]
-            .dropna()
-            .unique()
-        )
-    )
-
-    if mes:
-        df = df[
-            df["MES"]
-            .isin(mes)
-        ]
+st.plotly_chart(fig, use_container_width=True)
 
 # =====================================================
-# CONSULTING
+# PRODUCTOS MÁS VENDIDOS
 # =====================================================
-consulting = pd.DataFrame()
-ot_consulting = 0
-monto_consulting = 0
 
-if "NOMBRE_VENTAS_FIJOS" in df.columns:
+st.subheader("📦 Productos más vendidos")
 
-    consulting = df[
-        (df["TIPO"] == "Digital")
-        &
-        (
-            df["NOMBRE_VENTAS_FIJOS"]
-            .astype(str)
-            .str.upper()
-            .str.strip()
-            == "SERVICIOS PROFESIONALES CIBERSEGURIDAD"
-        )
-        &
-        (
-            df["STATUS_SEGUIMIENTO"]
-            .isin(
-                [
-                    "RETRASADO",
-                    "VIGENTE",
-                    "POSPUESTO",
-                    "POSPUESTA"
-                ]
-            )
-        )
-    ].copy()
+productos = top_productos(df)
 
-    ot_consulting = len(consulting)
-
-    monto_consulting = (
-        pd.to_numeric(
-            consulting["MONTO_VENTA_FINAL"],
-            errors="coerce"
-        )
-        .fillna(0)
-        .sum()
-    )
-
-    # Eliminar Consulting del dashboard
-    df = df.drop(consulting.index)
-
-# =====================================================
-# PROYECTOS
-# =====================================================
-proyectos = pd.DataFrame()
-ot_proyectos = 0
-monto_proyectos = 0
-
-if "STATUS_SEGUIMIENTO" in df.columns:
-
-    proyectos = df[
-        (df["TIPO"] == "Digital")
-        &
-        (
-            df["STATUS_SEGUIMIENTO"]
-            .astype(str)
-            .str.upper()
-            .str.strip()
-            == "PROYECTO"
-        )
-    ].copy()
-
-    ot_proyectos = len(proyectos)
-
-    monto_proyectos = (
-        pd.to_numeric(
-            proyectos["MONTO_VENTA_FINAL"],
-            errors="coerce"
-        )
-        .fillna(0)
-        .sum()
-    )
-# =====================================================
-# TOTAL OT
-# =====================================================
-total_ot = len(
-    df[
-        df["STATUS_SEGUIMIENTO"]
-        .isin(
-            [
-                "RETRASADO",
-                "VIGENTE",
-                "POSPUESTO",
-                "POSPUESTA",
-                "PROYECTO"
-            ]
-        )
-    ]
+fig = px.bar(
+    productos.head(10),
+    x="SERVICIOS",
+    y="PRODUCTO",
+    orientation="h",
+    text_auto=True
 )
 
+fig.update_layout(
+    yaxis={"categoryorder": "total ascending"}
+)
+
+st.plotly_chart(fig, use_container_width=True)
 
 # =====================================================
-# ESTADOS
+# CONTRATOS PROXIMOS A VENCER
 # =====================================================
-#st.write(df.columns.tolist())
-df_estado = df[
-    df["STATUS_SEGUIMIENTO"].isin(
+
+def contratos_por_vencer(df):
+
+    vencer = (
+        df[df["MESES_RESTANTES"] <= 6]
+        .sort_values("MESES_RESTANTES")
+    )
+
+    return vencer[
         [
-            "RETRASADO",
-            "VIGENTE",
-            "POSPUESTO",
-            "POSPUESTA"
+            "CLIENTE",
+            "PRODUCTO",
+            "MRC_USD",
+            "MESES_RESTANTES",
+            "EJECUTIVO_COMERCIAL"
         ]
-    )
-]
-
-retrasado = df_estado[
-    df_estado["STATUS_SEGUIMIENTO"]
-    == "RETRASADO"
-]
-
-vigente = df_estado[
-    df_estado["STATUS_SEGUIMIENTO"]
-    == "VIGENTE"
-]
-
-pospuesto = df_estado[
-    df_estado["STATUS_SEGUIMIENTO"]
-    .isin(["POSPUESTO", "POSPUESTA"])
-]
+    ]
 
 # =====================================================
-# DASHBOARD POR GERENTE
+# RESUMEN DE CLIENTES
 # =====================================================
-if "GERENTE_CARTERA" in df_estado.columns:
 
-    st.subheader(
-        "👥 Dashboard por Gerente"
-    )
+st.subheader("👥 Resumen de Clientes")
 
-    gerente_df = (
-        df_estado
-        .groupby(
-            [
-                "GERENTE_CARTERA",
-                "STATUS_SEGUIMIENTO"
-            ]
-        )
-        .agg(
-            OT=("STATUS_SEGUIMIENTO", "count"),
-            MONTO=("MONTO_VENTA_FINAL", "sum")
-        )
-        .reset_index()
-    )
-
-    fig_gerente = px.bar(
-        gerente_df,
-        x="GERENTE_CARTERA",
-        y="OT",
-        color="STATUS_SEGUIMIENTO",
-        barmode="group",
-        text="OT",
-        title="OT por Gerente y Estado",
-        color_discrete_map={
-            "RETRASADO": "red",
-            "VIGENTE": "green",
-            "POSPUESTO": "blue",
-            "POSPUESTA": "blue"
-        }
-    )
-
-    fig_gerente.update_layout(
-        xaxis_title="Gerente de Cartera",
-        yaxis_title="Cantidad de OT",
-        legend_title="Estado"
-    )
-
-    st.plotly_chart(
-        fig_gerente,
-        use_container_width=True
-    )
-# =====================================================
-# DASHBOARD POR COORDINACION
-# =====================================================
-for col_coord in [
-    "COORDINACION",
-    "COORDINACIÓN"
-]:
-
-    if col_coord in df_estado.columns:
-
-        coord_df = (
-            df_estado
-            .groupby(
-                [col_coord, "STATUS_SEGUIMIENTO"]
-            )
-            .agg(
-                OT=("STATUS_SEGUIMIENTO", "count"),
-                MONTO=("MONTO_VENTA_FINAL", "sum")
-            )
-            .reset_index()
-        )
-
-        # Excluir coordinaciones
-        coord_df = coord_df[
-            ~coord_df[col_coord].isin(
-                ["SAC (LQEV)", "WHOLESALE"]
-            )
-        ]
-
-        fig_coord = px.bar(
-            coord_df,
-            x=col_coord,
-            y="OT",
-            color="STATUS_SEGUIMIENTO",
-            barmode="group",
-            text="OT"
-        )
-
-        st.plotly_chart(
-            fig_coord,
-            use_container_width=True
-        )
-
-        break
-
-# =====================================================
-# KPI
-# =====================================================
-def formato_monto(valor):
-    if valor >= 1_000_000:
-        return f"${valor/1_000_000:.2f}M"
-    elif valor >= 1_000:
-        return f"${valor/1_000:.1f}K"
-    else:
-        return f"${valor:,.2f}"
-
-st.subheader("Resumen Ejecutivo")
-
-c1, c2, c3, c4 = st.columns(4)
-c5, c6, c7, c8 = st.columns(4)
-
-
-with c1:
-    st.metric(
-        "🔴 OT Retrasadas",
-        len(retrasado)
-    )
-    st.metric(
-        "Monto Retrasado",
-        f"$ {retrasado['MONTO_VENTA_FINAL'].fillna(0).sum():,.2f}"
-    )
-
-with c2:
-    st.metric(
-        "🟢 OT Vigentes",
-        len(vigente)
-    )
-    st.metric(
-        "Monto Vigente",
-        f"$ {vigente['MONTO_VENTA_FINAL'].fillna(0).sum():,.2f}"
-    )
-
-with c3:
-    st.metric(
-        "🟡 OT Pospuestas",
-        len(pospuesto)
-    )
-    st.metric(
-        "Monto Pospuesto",
-        f"$ {pospuesto['MONTO_VENTA_FINAL'].fillna(0).sum():,.2f}"
-    )
-
-with c4:
-    st.metric(
-        "🟣 OT Consulting",
-        f"{ot_consulting:,}"
-    )
-    st.metric(
-        "Monto Consulting",
-        f"$ {monto_consulting:,.2f}"
-    )
-
-with c5:
-    st.metric(
-        "📁 OT Proyectos",
-        f"{ot_proyectos:,}"
-    )
-    st.metric(
-        "Monto Proyectos",
-        f"$ {monto_proyectos:,.2f}"
-    )
-
-with c6:
-    st.metric(
-        "💰 Monto en Riesgo",
-        f"$ {retrasado['MONTO_VENTA_FINAL'].fillna(0).sum():,.2f}"
-    )
-
-with c7:
-    st.metric(
-        "📋 Total OT",
-        f"{total_ot + ot_consulting:,}"
-    )
-
-with c8:
-    porcentaje = 0
-
-    if len(df_estado) > 0:
-        porcentaje = (
-            len(retrasado)
-            / len(df_estado)
-        ) * 100
-
-    st.metric(
-        "% Retrasadas",
-        f"{porcentaje:.1f}%"
-    )
-
-# =====================================================
-# RESUMEN
-# =====================================================
-st.subheader("Resumen por Estado")
-
-resumen = (
-    df_estado
-    .groupby("STATUS_SEGUIMIENTO")
-    .agg(
-        OT=("STATUS_SEGUIMIENTO", "count"),
-        MONTO=("MONTO_VENTA_FINAL", "sum")
-    )
-    .reset_index()
-)
+tabla_clientes = resumen_clientes(df)
 
 st.dataframe(
-    resumen.style.format(
-        {
-            "MONTO": "${:,.2f}"
-        }
-    ),
-    use_container_width=True
+    tabla_clientes,
+    use_container_width=True,
+    hide_index=True
 )
 
 # =====================================================
-# COMPARATIVO BACKLOG
+# CONTRATOS PROXIMOS A VENCER
 # =====================================================
-if archivo_anterior:
 
-    df_anterior = cargar_matriz(
-        archivo_anterior
-    )
+st.subheader("⏳ Contratos próximos a vencer (6 meses)")
 
-    estados = [
-        "RETRASADO",
-        "VIGENTE",
-        "POSPUESTO",
-        "POSPUESTA",
-        "PROYECTO"
-    ]
-
-    # Matriz anterior
-    df_anterior = df_anterior[
-        df_anterior["STATUS_SEGUIMIENTO"]
-        .isin(estados)
-    ]
-
-    # Matriz actual
-    df_comparativo = df[
-        df["STATUS_SEGUIMIENTO"]
-        .isin(estados)
-    ]
-
-    resumen_ant = (
-        df_anterior
-        .groupby("STATUS_SEGUIMIENTO")
-        .agg(
-            OT_ANTERIOR=(
-                "STATUS_SEGUIMIENTO",
-                "count"
-            ),
-            MONTO_ANTERIOR=(
-                "MONTO_VENTA_FINAL",
-                "sum"
-            )
-        )
-        .reset_index()
-    )
-
-    resumen_act = (
-        df_comparativo
-        .groupby("STATUS_SEGUIMIENTO")
-        .agg(
-            OT_ACTUAL=(
-                "STATUS_SEGUIMIENTO",
-                "count"
-            ),
-            MONTO_ACTUAL=(
-                "MONTO_VENTA_FINAL",
-                "sum"
-            )
-        )
-        .reset_index()
-    )
-
-    comparativo = (
-        resumen_ant
-        .merge(
-            resumen_act,
-            on="STATUS_SEGUIMIENTO",
-            how="outer"
-        )
-        .fillna(0)
-    )
-
-    comparativo["VARIACION_OT"] = (
-        comparativo["OT_ACTUAL"]
-        -
-        comparativo["OT_ANTERIOR"]
-    )
-
-    comparativo["VARIACION_MONTO"] = (
-        comparativo["MONTO_ACTUAL"]
-        -
-        comparativo["MONTO_ANTERIOR"]
-    )
-
-    comparativo["VARIACION_%"] = (
-        comparativo["VARIACION_OT"]
-        /
-        comparativo["OT_ANTERIOR"]
-        .replace(0, pd.NA)
-    ) * 100
-
-    st.subheader(
-        "📈 Variación del Backlog"
-    )
-
-    st.dataframe(
-        comparativo.style.format(
-            {
-                "OT_ANTERIOR": "{:,.0f}",
-                "OT_ACTUAL": "{:,.0f}",
-                "VARIACION_OT": "{:,.0f}",
-                "MONTO_ANTERIOR": "${:,.2f}",
-                "MONTO_ACTUAL": "${:,.2f}",
-                "VARIACION_MONTO": "${:,.2f}",
-                "VARIACION_%": "{:.1f}%"
-            }
-        ),
-        use_container_width=True
-    )
-# =====================================================
-# GRAFICA DE OT POR AÑO
-# =====================================================
-if "AÑO" in df_estado.columns:
-
-    st.subheader(
-        "📈 OT por Estado y Año"
-    )
-
-    grafica_anio = (
-        df_estado
-        .groupby(
-            ["AÑO", "STATUS_SEGUIMIENTO"]
-        )
-        .size()
-        .reset_index(name="OT")
-    )
-
-    fig_anio = px.bar(
-        grafica_anio,
-        x="AÑO",
-        y="OT",
-        color="STATUS_SEGUIMIENTO",
-        barmode="group",
-        text="OT",
-        title="OT Retrasadas, Vigentes y Pospuestas por Año",
-        color_discrete_map={
-            "POSPUESTO": "#0070C0",
-            "POSPUESTA": "#0070C0",
-            "VIGENTE": "#00B050",
-            "RETRASADO": "#C00000"
-        }
-    )
-
-    fig_anio.update_layout(
-        xaxis_title="Año",
-        yaxis_title="Cantidad de OT",
-        legend_title="Estado"
-    )
-
-    st.plotly_chart(
-        fig_anio,
-        use_container_width=True
-    )
-
-# =====================================================
-# GRAFICA DE MONTO POR AÑO
-# =====================================================
-if "AÑO" in df_estado.columns:
-
-    st.subheader(
-        "💰 Monto por Estado y Año"
-    )
-
-    monto_anio = (
-        df_estado
-        .groupby(
-            ["AÑO", "STATUS_SEGUIMIENTO"]
-        )
-        .agg(
-            MONTO=("MONTO_VENTA_FINAL", "sum")
-        )
-        .reset_index()
-    )
-
-    fig_monto = px.bar(
-        monto_anio,
-        x="AÑO",
-        y="MONTO",
-        color="STATUS_SEGUIMIENTO",
-        barmode="group",
-        title="Monto por Estado y Año",
-        color_discrete_map={
-            "VIGENTE": "#00B050",
-            "RETRASADO": "#C00000",
-            "POSPUESTO": "#0070C0",
-            "POSPUESTA": "#0070C0"
-        }
-    )
-
-    fig_monto.update_layout(
-        xaxis_title="Año",
-        yaxis_title="Monto ($)",
-        legend_title="Estado"
-    )
-
-    st.plotly_chart(
-        fig_monto,
-        use_container_width=True
-    )
-
-# =====================================================
-# TOP CLIENTES
-# =====================================================
-if "CLIENTE" in retrasado.columns:
-
-    st.subheader(
-        "🏆 Top 10 Clientes Retrasados"
-    )
-
-    top = (
-        retrasado
-        .groupby("CLIENTE")
-        .agg(
-            OT=("CLIENTE", "count"),
-            MONTO=("MONTO_VENTA_FINAL", "sum")
-        )
-        .sort_values(
-            "OT",
-            ascending=False
-        )
-        .head(10)
-        .reset_index()
-    )
-
-    st.dataframe(
-        top,
-        use_container_width=True
-    )
-
-
-
-# =====================================================
-# EXPORTAR
-# =====================================================
-buffer = BytesIO()
-
-with pd.ExcelWriter(
-    buffer,
-    engine="openpyxl"
-) as writer:
-
-    df_estado.to_excel(
-        writer,
-        index=False,
-        sheet_name="Detalle"
-    )
-
-st.download_button(
-    "📥 Descargar Detalle",
-    data=buffer.getvalue(),
-    file_name="Backlog.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
-
-# =====================================================
-# DETALLE
-# =====================================================
-st.subheader("Detalle de OT")
+vencer = contratos_por_vencer(df)
 
 st.dataframe(
-    df_estado,
-    use_container_width=True
+    vencer,
+    use_container_width=True,
+    hide_index=True
 )
